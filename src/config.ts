@@ -16,7 +16,7 @@ export const config = {
   /** Public address of the web build, e.g. https://you.github.io/perp-duel/. The native app hands real trades to Phantom through it. */
   webUrl: process.env.EXPO_PUBLIC_WEB_URL || null,
   /** Margin, in USDC, behind a real trade opened from a card. */
-  realTradeMarginUsd: 10,
+  realTradeMarginUsd: 10 as number,
 };
 
 export const STAKES = ['10000000000000000', '50000000000000000', '100000000000000000'] as const;

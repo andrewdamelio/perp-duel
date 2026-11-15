@@ -5,6 +5,9 @@ import type { Eip1193 } from '../chain/phantom';
 import { accountOf } from '../chain/wallet';
 import type { Address, Card, Hex } from '../engine';
 
+export type TradeStep = 'connect' | 'funds' | 'builder' | 'agent' | 'order';
+export type StepState = 'active' | 'done' | 'skipped';
+
 export interface RealTradeRequest {
   card: Card;
   /** Leverage for the real position. Cards go far beyond what Hyperliquid allows, so this is capped by the caller. */
@@ -20,7 +23,8 @@ export interface RealTradeRequest {
   builder: Address | null;
   /** Tenths of a basis point: 10 = 0.01%. */
   builderFee: number;
-  onStep?: (text: string) => void;
+  /** Called as each stage starts and ends, so the screen can show a live checklist. */
+  onProgress?: (step: TradeStep, state: StepState, detail?: string) => void;
 }
 
 export interface RealTradeResult {
@@ -32,6 +36,7 @@ export interface RealTradeResult {
 
 const SLIPPAGE = 0.01;
 const AGENT_NAME = 'PerpDuel';
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 /**
  * Turn a card into a real Hyperliquid position.
@@ -49,7 +54,7 @@ const AGENT_NAME = 'PerpDuel';
  * Without Phantom (a dev fallback), the device key is the account and signs everything.
  */
 export async function openRealTrade(req: RealTradeRequest): Promise<RealTradeResult> {
-  const step = req.onStep ?? (() => {});
+  const progress = req.onProgress ?? (() => {});
   const transport = new HttpTransport({ isTestnet: req.testnet });
   const info = new InfoClient({ transport });
   const agentAccount = accountOf(req.key);
@@ -59,85 +64,61 @@ export async function openRealTrade(req: RealTradeRequest): Promise<RealTradeRes
   // Whoever owns the account signs the two approvals: Phantom if present, otherwise the device key.
   let owner: Pick<typeof agent, 'approveBuilderFee' | 'approveAgent'> = agent;
 
+  progress('connect', 'active');
   if (req.phantom) {
-    step('Connecting to Phantom');
     const wallet = createWalletClient({ transport: custom(req.phantom) });
     const [address] = await wallet.requestAddresses();
     if (!address) throw new Error('Phantom did not share an Ethereum address');
     account = address;
-    owner = new ExchangeClient({
-      transport,
-      wallet: createWalletClient({
-        account: address,
-        transport: custom(req.phantom),
-      }),
-    });
+    owner = new ExchangeClient({ transport, wallet: createWalletClient({ account: address, transport: custom(req.phantom) }) });
   }
-
-  const dex = req.card.coin.includes(':') ? (req.card.coin.split(':')[0] as string) : null;
-  const symbols = await SymbolConverter.create({
-    transport,
-    dexs: dex ? [dex] : false,
-  });
-  const assetId = symbols.getAssetId(req.card.coin);
-  const decimals = symbols.getSzDecimals(req.card.coin);
-  if (assetId === undefined || decimals === undefined) {
-    throw new Error(`${req.card.coin} is not listed on Hyperliquid ${req.testnet ? 'testnet' : 'mainnet'}`);
-  }
-  const asset: number = assetId;
-  const szDecimals: number = decimals;
+  progress('connect', 'done', short(account));
 
   // Check the money before asking for any signature. A page in Phantom's browser can only
-  // use what is already in the wallet's Hyperliquid perps balance; it cannot pull from
-  // Cash, SOL or USDC on Solana the way Phantom's own perps tab does when you open a trade.
-  if (req.phantom) {
-    const available = await availableUsd(info, account);
-    if (available !== null && available < req.marginUsd) throw new Error(needsFunds(account, available, req.marginUsd));
-  }
+  // use what is already in the wallet's Hyperliquid balance; it cannot pull from Cash, SOL
+  // or USDC on Solana the way Phantom's own perps tab does when you open a trade.
+  progress('funds', 'active');
+  const available = await availableUsd(info, account);
+  if (available !== null && available < req.marginUsd) throw new Error(needsFunds(account, available, req.marginUsd));
+  progress('funds', 'done', available === null ? undefined : `$${available.toFixed(2)} available`);
 
   try {
-    return await approveAndOrder();
-  } catch (e) {
-    const message = (e as Error).message ?? '';
-    // An account Hyperliquid has never seen cannot sign anything yet.
-    if (/must deposit|does not exist/i.test(message)) throw new Error(needsFunds(account, 0, req.marginUsd));
-    throw e;
-  }
+    const dex = req.card.coin.includes(':') ? (req.card.coin.split(':')[0] as string) : null;
+    const symbols = await SymbolConverter.create({ transport, dexs: dex ? [dex] : false });
+    const asset = symbols.getAssetId(req.card.coin);
+    const szDecimals = symbols.getSzDecimals(req.card.coin);
+    if (asset === undefined || szDecimals === undefined) {
+      throw new Error(`${req.card.coin} is not listed on Hyperliquid ${req.testnet ? 'testnet' : 'mainnet'}`);
+    }
 
-  async function approveAndOrder(): Promise<RealTradeResult> {
     if (req.builder) {
-      const approved = await info.maxBuilderFee({
-        user: account,
-        builder: req.builder,
-      });
+      progress('builder', 'active');
+      const approved = await info.maxBuilderFee({ user: account, builder: req.builder });
       if (approved < req.builderFee) {
-        step(req.phantom ? 'Approve the builder fee in Phantom' : 'Approving the builder fee');
-        await owner.approveBuilderFee({
-          builder: req.builder,
-          maxFeeRate: `${req.builderFee / 1000}%`,
-        });
+        await owner.approveBuilderFee({ builder: req.builder, maxFeeRate: `${req.builderFee / 1000}%` });
+        progress('builder', 'done', 'Approved');
+      } else {
+        progress('builder', 'done', 'Already approved');
       }
+    } else {
+      progress('builder', 'skipped');
     }
 
     if (req.phantom) {
+      progress('agent', 'active');
       const agents = await info.extraAgents({ user: account });
-      const known = agents.some((a) => a.address.toLowerCase() === agentAccount.address.toLowerCase());
-      if (!known) {
-        step('Approve this device as a trading agent in Phantom');
-        await owner.approveAgent({
-          agentAddress: agentAccount.address,
-          agentName: AGENT_NAME,
-        });
+      if (agents.some((a) => a.address.toLowerCase() === agentAccount.address.toLowerCase())) {
+        progress('agent', 'done', 'Already approved');
+      } else {
+        await owner.approveAgent({ agentAddress: agentAccount.address, agentName: AGENT_NAME });
+        progress('agent', 'done', 'Approved');
       }
+    } else {
+      progress('agent', 'skipped');
     }
 
-    step('Placing the order');
-    await agent.updateLeverage({
-      asset,
-      isCross: false,
-      leverage: req.leverage,
-    });
-
+    progress('order', 'active');
+    await agent.updateLeverage({ asset, isCross: false, leverage: req.leverage });
     const mids = await info.allMids(dex ? { dex } : undefined);
     const mid = Number(mids[req.card.coin]);
     if (!(mid > 0)) throw new Error(`No price for ${req.card.coin}`);
@@ -146,29 +127,22 @@ export async function openRealTrade(req: RealTradeRequest): Promise<RealTradeRes
     const size = formatSize((req.marginUsd * req.leverage) / mid, szDecimals);
 
     const res = await agent.order({
-      orders: [
-        {
-          a: asset,
-          b: isBuy,
-          p: price,
-          s: size,
-          r: false,
-          t: { limit: { tif: 'Ioc' } },
-        },
-      ],
+      orders: [{ a: asset, b: isBuy, p: price, s: size, r: false, t: { limit: { tif: 'Ioc' } } }],
       grouping: 'na',
       ...(req.builder ? { builder: { b: req.builder, f: req.builderFee } } : {}),
     });
     const status = res.response.data.statuses[0];
     if (status && typeof status === 'object' && 'filled' in status) {
-      return {
-        account,
-        filledSize: status.filled.totalSz,
-        averagePrice: status.filled.avgPx,
-        orderId: status.filled.oid,
-      };
+      progress('order', 'done', `${status.filled.totalSz} at ${status.filled.avgPx}`);
+      return { account, filledSize: status.filled.totalSz, averagePrice: status.filled.avgPx, orderId: status.filled.oid };
     }
     throw new Error('The order was accepted but did not fill. Try again.');
+  } catch (e) {
+    const message = (e as Error).message ?? '';
+    // An account Hyperliquid has never seen cannot sign anything yet.
+    if (/must deposit|does not exist/i.test(message)) throw new Error(needsFunds(account, 0, req.marginUsd));
+    if (/user rejected|user denied|rejected the request/i.test(message)) throw new Error('You closed the request in Phantom. Nothing was placed.');
+    throw e;
   }
 }
 
@@ -189,8 +163,7 @@ async function availableUsd(info: InfoClient, user: Address): Promise<number | n
 function needsFunds(account: Address, available: number, needed: number): string {
   const have = available > 0 ? `has $${available.toFixed(2)}` : 'is empty';
   return (
-    `Hyperliquid says the perps balance of ${account.slice(0, 6)}…${account.slice(-4)} ${have}, and this trade needs $${needed}. ` +
-    'Money in Cash or your main wallet does not count until you move it: in Phantom, go to Home, then Perps, then Add under Available funds. ' +
-    `Add a little more than $${needed} to cover fees, then come back and place the order.`
+    `The perps balance of ${short(account)} ${have}, and this trade needs $${needed}. ` +
+    'In Phantom, go to Home, then Perps, then Add under Available funds, and come back.'
   );
 }

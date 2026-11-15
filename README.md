@@ -96,7 +96,8 @@ play-money stakes.
 ## Real trades, through Phantom
 
 Phantom's perps run on Hyperliquid, on the account of the wallet's Ethereum address. "Open
-this trade for real" puts a card onto that same account, so the position shows up in
+this trade for real" walks through three steps (review the card, confirm in Phantom,
+filled) and puts the card onto that same account, so the position shows up in
 Phantom's own perps tab.
 
 - **Inside Phantom** (its in-app browser, or a desktop browser with the extension) the web
@@ -111,7 +112,7 @@ Phantom's own perps tab.
   inside Phantom with a `phantom.com/ul/browse/…` link. The card rides along in the address
   as `#trade-BTC-long-1000`.
 
-This is mainnet and real money: $10 of margin per trade. The Phantom wallet needs USDC in
+This is mainnet and real money: $10, $25 or $50 of margin per trade. The Phantom wallet needs USDC in
 its perps balance already: a page in Phantom's browser cannot draw on Cash, SOL or Solana
 USDC the way Phantom's own perps tab can (Home → Perps → Add moves money across). The sheet
 checks the balance before asking for any signature. Phantom does not offer perps in every region.
