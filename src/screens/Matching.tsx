@@ -6,7 +6,7 @@ import { color, font, size, space } from '../ui/theme';
 
 export function Matching() {
   const g = useGame();
-  const waitingForHuman = Boolean(g.referee) && !g.bot;
+  const waitingForHuman = Boolean(g.arena);
   return (
     <View style={styles.page}>
       <ActivityIndicator color={color.lilac} size="large" />
@@ -15,7 +15,7 @@ export function Matching() {
       </Text>
       <P dim style={{ textAlign: 'center' }}>
         {waitingForHuman
-          ? `You are in line for a ${fmtDuration(g.duration)} duel at ${fmtHype(g.stake)} each. The next player who picks the same terms sits down with you.`
+          ? (g.busy ?? `Your ${fmtHype(g.stake)} is staked for a ${fmtDuration(g.duration)} duel. The next player who picks the same terms sits down with you. Leaving takes your stake back.`)
           : 'Dealing as soon as prices arrive.'}
       </P>
       <Button label="Leave the table" kind="quiet" onPress={g.leave} style={{ marginTop: space.xl, alignSelf: 'stretch' }} />

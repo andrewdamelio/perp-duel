@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { explorerTx } from '../chain/escrow';
+import { explorerTx } from '../chain/arena';
 import { DEFAULT_MARKETS, SECRETS, marketByCoin, type Card, type MatchView, type PositionState, type ScoreLine } from '../engine';
 import { useGame } from '../game/store';
 import { fmtHype, fmtPoints, shortAddress } from '../ui/format';
@@ -66,7 +66,20 @@ export function Result({ view }: { view: MatchView }) {
   }, [flip, reduced]);
 
   const result = view.result;
-  if (!result || !view.you.card || !view.opp.card) return null;
+  if (!result) return null;
+  if (!view.you.card || !view.opp.card) {
+    // The duel ended before both cards were on the table: someone missed a deadline.
+    const title = result.outcome === 'win' ? 'You take the pot' : result.outcome === 'loss' ? 'You forfeited' : 'Duel called off';
+    return (
+      <View style={[styles.page, { flex: 1, justifyContent: 'center', gap: space.m }]}>
+        <Text accessibilityRole="header" style={styles.headline}>
+          {title}
+        </Text>
+        <P style={{ fontSize: size.lead }}>{view.note}</P>
+        <Button label="Play again" onPress={g.leave} style={{ marginTop: space.l }} />
+      </View>
+    );
+  }
   const pot = BigInt(view.stake) * 2n;
   const headline =
     result.outcome === 'win' ? 'You take the pot' : result.outcome === 'loss' ? `${view.opp.name} takes the pot` : 'Dead heat';
@@ -77,7 +90,7 @@ export function Result({ view }: { view: MatchView }) {
       : result.outcome === 'win'
         ? `${fmtHype(pot)}${money}, ${fmtPoints(result.you.total)} to ${fmtPoints(result.opp.total)}.`
         : `${fmtHype(pot)}${money}, ${fmtPoints(result.opp.total)} to ${fmtPoints(result.you.total)}.`;
-  const chain = g.referee?.chain ?? null;
+  const chain = g.arena;
   const txUrl = chain && view.settleTx ? explorerTx(chain, view.settleTx) : null;
   const colWidth = Math.min(176, (Math.min(width, 480) - 2 * space.l - space.l) / 2);
 
@@ -100,18 +113,14 @@ export function Result({ view }: { view: MatchView }) {
 
       {view.onchain ? (
         <View style={styles.chain}>
+          <P>The contract scored this duel from Hyperliquid's own prices and paid out. Nobody else was involved.</P>
           {view.settleTx ? (
-            <>
-              <P>The escrow checked both cards against the commitments made before the duel and paid out.</P>
-              <Pressable accessibilityRole="link" disabled={!txUrl} onPress={() => txUrl && Linking.openURL(txUrl)}>
-                <Text selectable style={styles.link}>
-                  {txUrl ? `View settlement ${shortAddress(view.settleTx)}` : `Settlement ${view.settleTx}`}
-                </Text>
-              </Pressable>
-            </>
-          ) : (
-            <P dim>{view.note ?? 'The referee is submitting the result to the escrow.'}</P>
-          )}
+            <Pressable accessibilityRole="link" disabled={!txUrl} onPress={() => txUrl && Linking.openURL(txUrl)}>
+              <Text selectable style={styles.link}>
+                {txUrl ? `View transaction ${shortAddress(view.settleTx)}` : `Transaction ${view.settleTx}`}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 

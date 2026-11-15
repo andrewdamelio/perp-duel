@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { chainName } from '../chain/escrow';
-import { config, DURATIONS, STAKES } from '../config';
+import { chainName } from '../chain/arena';
+import { DURATIONS, STAKES } from '../config';
 import { DEFAULT_MARKETS, marketByCoin, type Card } from '../engine';
 import { useGame } from '../game/store';
 import { fmtHype, shortAddress } from '../ui/format';
@@ -26,7 +26,7 @@ export function Lobby() {
   const { width } = useWindowDimensions();
   const g = useGame();
   const cardWidth = Math.min(132, (Math.min(width, 480) - 2 * space.l) * 0.31);
-  const escrow = g.referee?.chain ?? null;
+  const escrow = g.arena;
   const short = escrow && g.balance !== null && g.balance <= BigInt(g.stake);
 
   return (
@@ -68,21 +68,9 @@ export function Lobby() {
         onChange={(stake) => g.setTerms({ stake })}
         options={STAKES.map((s) => ({ value: s, label: fmtHype(s) }))}
       />
-      {g.referee ? (
-        <Choice
-          title="Opponent"
-          value={g.bot}
-          onChange={(bot) => g.setTerms({ bot })}
-          options={[
-            { value: true, label: 'House bot' },
-            { value: false, label: 'Next player in line' },
-          ]}
-        />
-      ) : null}
-
       <View style={{ marginTop: space.xl, gap: space.m }}>
         {g.error ? <Notice text={g.error} onDismiss={g.dismissError} /> : null}
-        {g.refereeError ? <Notice text={g.refereeError} tone="info" /> : null}
+        {g.arenaError ? <Notice text={g.arenaError} tone="info" /> : null}
         {short ? <Notice tone="info" text={`This wallet holds ${fmtHype(g.balance ?? 0n)}. It needs the stake plus a little for gas before you can lock a card.`} /> : null}
         <Button label="Deal me in" onPress={g.findDuel} disabled={!g.ready} />
       </View>
@@ -93,13 +81,12 @@ export function Lobby() {
         </P>
         {escrow ? (
           <P dim style={styles.small}>
-            Stakes are held by the escrow at {shortAddress(escrow.escrow)} on {chainName(escrow)} and paid to the winner when the clock runs out.
+            No house and no referee. The contract at {shortAddress(escrow.address)} on {chainName(escrow)} holds both stakes, deals the cards, reads
+            Hyperliquid's prices and pays the winner.
           </P>
         ) : (
           <P dim style={styles.small}>
-            {config.refereeUrl && g.referee
-              ? 'This referee has no escrow configured, so stakes are play money.'
-              : 'Practice table. Nothing leaves this device except the price subscription.'}
+            Practice table. Nothing leaves this device except the price subscription.
           </P>
         )}
         {escrow && g.address ? (

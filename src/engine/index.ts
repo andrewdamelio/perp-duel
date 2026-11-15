@@ -7,3 +7,4 @@ export * from './scoring';
 export * from './deck';
 export * from './commit';
 export * from './match';
+export * from './arena';

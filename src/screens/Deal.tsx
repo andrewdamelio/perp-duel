@@ -57,7 +57,7 @@ export function Deal({ view }: { view: MatchView }) {
           Your hand
         </Text>
         <P dim>
-          {fmtDuration(view.duration)} against {view.opp.name}, {fmtHype(view.stake)} each{view.onchain ? '' : ' in play money'}. Pick one card.
+          {fmtDuration(view.duration)} against {view.opp.name}, {fmtHype(view.stake)} each{view.onchain ? '' : ' in play money'}. Pick one card{view.onchain ? ' within 90 seconds, or forfeit' : ''}.
         </P>
       </View>
 
@@ -126,7 +126,7 @@ export function Deal({ view }: { view: MatchView }) {
           disabled={locked}
           busy={Boolean(g.busy)}
         />
-        {!locked && !g.busy ? <Button label="Leave the table" kind="quiet" onPress={g.leave} /> : null}
+        {!locked && !g.busy && !view.onchain ? <Button label="Leave the table" kind="quiet" onPress={g.leave} /> : null}
       </View>
     </View>
   );

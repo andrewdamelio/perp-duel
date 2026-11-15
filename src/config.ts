@@ -5,8 +5,19 @@ import type { Address } from './engine';
  * the app runs as a practice table: live Hyperliquid prices, a local bot, play-money stakes.
  */
 export const config = {
-  /** Base URL of the referee server. Enables matchmaking and, if the server has an escrow, on-chain stakes. */
-  refereeUrl: process.env.EXPO_PUBLIC_REFEREE_URL?.replace(/\/$/, '') || null,
+  /**
+   * The DuelArena contract. Set EXPO_PUBLIC_ARENA_ADDRESS to play for real stakes on-chain;
+   * without it the app is a practice table.
+   */
+  arena: process.env.EXPO_PUBLIC_ARENA_ADDRESS
+    ? {
+        address: process.env.EXPO_PUBLIC_ARENA_ADDRESS as Address,
+        chainId: Number(process.env.EXPO_PUBLIC_CHAIN_ID || 998),
+        rpcUrl: process.env.EXPO_PUBLIC_RPC_URL || 'https://rpc.hyperliquid-testnet.xyz/evm',
+        // Only for a local test chain, where Hyperliquid's API cannot name the markets.
+        coins: process.env.EXPO_PUBLIC_ARENA_COINS?.split(','),
+      }
+    : null,
   /** Your Hyperliquid builder address. Real orders carry it as their builder code; without it they go through with no builder fee. */
   builder: (process.env.EXPO_PUBLIC_BUILDER_ADDRESS as Address | undefined) || null,
   /** Builder fee in tenths of a basis point (10 = 1 bp = 0.01%). Perps allow at most 100. */

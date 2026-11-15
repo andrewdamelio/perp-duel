@@ -1,14 +1,12 @@
-import { balanceOf, enterDuel, type ChainInfo } from '../chain/escrow';
+import type { ArenaPlayer } from '../chain/arenaPlayer';
 import {
   lockPick,
   newMatch,
-  pickCommit,
   randomHex32,
   start,
   tick,
   viewFor,
   type Address,
-  type Hex,
   type Market,
   type Match,
   type MatchView,
@@ -18,7 +16,6 @@ import type { PriceFeed } from '../hl/feed';
 export interface DuelTerms {
   duration: number;
   stake: string;
-  bot: boolean;
 }
 
 export interface DriverEvents {
@@ -31,6 +28,8 @@ export interface DriverEvents {
 export interface Driver {
   find(terms: DuelTerms): Promise<void>;
   pick(cardIndex: number): Promise<void>;
+  /** Undo whatever can still be undone before walking away. */
+  leave?(): Promise<void>;
   stop(): void;
 }
 
@@ -113,112 +112,35 @@ export class LocalDriver implements Driver {
 }
 
 /**
- * Referee table: matchmaking, dealing and scoring happen on the referee server. If the
- * server has an escrow configured, locking a card first stakes and commits on-chain.
+ * On-chain table: stakes, dealing, scoring and payout all happen in the DuelArena
+ * contract. There is no server; this device talks to the chain directly.
  */
-export class RemoteDriver implements Driver {
-  private matchId: Hex | null = null;
-  private ticket: string | null = null;
-  private last: MatchView | null = null;
-  private stopped = false;
-
-  constructor(
-    private readonly url: string,
-    private readonly me: Address,
-    private readonly key: Hex,
-    private readonly chain: ChainInfo | null,
-    private readonly events: DriverEvents,
-  ) {}
+export class ArenaDriver implements Driver {
+  constructor(private readonly player: ArenaPlayer) {}
 
   async find(terms: DuelTerms) {
-    const queued = await this.request<{ ticket: string; matchId: Hex | null }>('/queue', {
-      address: this.me,
-      duration: terms.duration,
-      stake: terms.stake,
-      bot: terms.bot,
-    });
-    this.ticket = queued.ticket;
-    let id = queued.matchId;
-    while (!id && !this.stopped) {
-      await sleep(1500);
-      id = (await this.request<{ matchId: Hex | null }>(`/ticket/${queued.ticket}`)).matchId;
-    }
-    if (id && !this.stopped) await this.resume(id);
+    await this.player.find({ duration: terms.duration, stake: BigInt(terms.stake) });
+    this.player.start();
   }
 
-  /** Pick a duel back up, e.g. after reopening the app during a 12 hour duel. */
-  async resume(matchId: Hex) {
-    this.matchId = matchId;
-    this.ticket = null;
-    await this.refresh();
-    void this.poll();
+  /** Pick up a duel this wallet is already seated in. */
+  async resume(): Promise<boolean> {
+    const seated = await this.player.resume();
+    if (seated) this.player.start();
+    return seated;
   }
 
   async pick(cardIndex: number) {
-    const view = this.last;
-    if (!view) return;
-    const card = view.you.hand[cardIndex];
-    if (!card) return;
-    const salt = randomHex32();
-    try {
-      if (view.onchain) {
-        if (!this.chain) throw new Error('This duel is escrowed on-chain but the referee did not share its chain details');
-        const stake = BigInt(view.stake);
-        if ((await balanceOf(this.chain, this.me)) <= stake) {
-          throw new Error(`Your wallet needs more than the stake in HYPE to cover gas. Fund ${this.me} and try again.`);
-        }
-        this.events.onBusy('Sending your stake to the escrow');
-        await enterDuel(this.chain, this.key, view, pickCommit(view.id, this.me, card, salt));
-      }
-      this.events.onBusy('Locking in');
-      // The stake may already be on-chain, so keep trying to hand the referee the reveal.
-      for (let attempt = 0; ; attempt++) {
-        try {
-          this.last = await this.request<MatchView>(`/match/${view.id}/pick`, { player: this.me, cardIndex, salt });
-          break;
-        } catch (e) {
-          if (attempt >= 5) throw e;
-          await sleep(1500);
-        }
-      }
-      this.events.onView(this.last);
-    } finally {
-      this.events.onBusy(null);
-    }
+    this.player.choose(cardIndex);
+    await this.player.tick();
+  }
+
+  /** Leaving before anyone joins takes the stake back. After that, the duel plays out. */
+  async leave() {
+    await this.player.leave();
   }
 
   stop() {
-    this.stopped = true;
-    if (this.ticket && !this.matchId) void this.request(`/ticket/${this.ticket}`, undefined, 'DELETE').catch(() => {});
-  }
-
-  private async poll() {
-    while (!this.stopped) {
-      await sleep(700);
-      if (this.stopped) return;
-      try {
-        await this.refresh();
-      } catch (e) {
-        this.events.onError(`Lost contact with the referee: ${(e as Error).message}`);
-      }
-      const v = this.last;
-      if (v?.phase === 'settled' && (!v.onchain || v.settleTx)) return;
-    }
-  }
-
-  private async refresh() {
-    this.last = await this.request<MatchView>(`/match/${this.matchId}?player=${this.me}`);
-    this.events.onView(this.last);
-  }
-
-  private async request<T>(path: string, body?: unknown, method?: string): Promise<T> {
-    const res = await fetch(`${this.url}${path}`, {
-      method: method ?? (body ? 'POST' : 'GET'),
-      headers: body ? { 'content-type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const json = (await res.json()) as T & { error?: string };
-    if (!res.ok) throw new Error(json.error ?? `Referee answered ${res.status}`);
-    return json;
+    this.player.stop();
   }
 }

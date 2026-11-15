@@ -1,0 +1,64 @@
+{
+  "abi": [
+    {
+      "stateMutability": "nonpayable",
+      "type": "fallback"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint32",
+          "name": "",
+          "type": "uint32"
+        }
+      ],
+      "name": "prices",
+      "outputs": [
+        {
+          "internalType": "uint64",
+          "name": "",
+          "type": "uint64"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint32",
+          "name": "perp",
+          "type": "uint32"
+        },
+        {
+          "internalType": "uint64",
+          "name": "px",
+          "type": "uint64"
+        }
+      ],
+      "name": "set",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint32[]",
+          "name": "perps",
+          "type": "uint32[]"
+        },
+        {
+          "internalType": "uint64[]",
+          "name": "pxs",
+          "type": "uint64[]"
+        }
+      ],
+      "name": "setMany",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x608080604052346015576102ad908161001a8239f35b5f80fdfe60808060405260033611610085575b50346100815760203612610081575f3563ffffffff8116809103610081575f525f60205267ffffffffffffffff60405f20541660405160208101918252602081526040810181811067ffffffffffffffff82111761006d576040525190f35b634e487b7160e01b5f52604160045260245ffd5b5f80fd5b5f3560e01c908163655750ac146101d557508063851e9fbd1461010f5763d7bc47a8146100b2575f61000e565b34610081576040366003190112610081576100cb61020f565b6024359067ffffffffffffffff821682036100815763ffffffff165f525f60205267ffffffffffffffff60405f20911667ffffffffffffffff198254161790555f80f35b346100815760403660031901126100815760043567ffffffffffffffff811161008157610140903690600401610222565b60243567ffffffffffffffff811161008157610160903690600401610222565b5f9291925b82811061016e57005b610179818386610253565b359067ffffffffffffffff8216820361008157610197818588610253565b359163ffffffff8316809303610081576001925f525f60205267ffffffffffffffff60405f20911667ffffffffffffffff1982541617905501610165565b346100815760203660031901126100815760209063ffffffff6101f661020f565b165f525f825267ffffffffffffffff60405f2054168152f35b6004359063ffffffff8216820361008157565b9181601f840112156100815782359167ffffffffffffffff8311610081576020808501948460051b01011161008157565b91908110156102635760051b0190565b634e487b7160e01b5f52603260045260245ffdfea26469706673582212207b3ea660a283dbbe142754d38c53b6ddaf382e0af7970f2e7fd9a2aca0ef0fd364736f6c63430008260033"
+}

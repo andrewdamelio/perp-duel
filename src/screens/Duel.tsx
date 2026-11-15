@@ -99,8 +99,8 @@ export function Duel({ view }: { view: MatchView }) {
           </Text>
         </View>
         <P dim style={styles.pot}>
-          {fmtHype(BigInt(view.stake) * 2n)} in the pot{view.onchain ? ', held in escrow' : ', play money'}.{' '}
-          {g.feedStatus === 'live' ? 'Live Hyperliquid prices.' : 'Simulated prices.'}
+          {fmtHype(BigInt(view.stake) * 2n)} in the pot{view.onchain ? ', held by the contract' : ', play money'}.{' '}
+          {view.note ?? (view.onchain ? 'Hyperliquid mark prices, read on-chain.' : g.feedStatus === 'live' ? 'Live Hyperliquid prices.' : 'Simulated prices.')}
         </P>
       </View>
 

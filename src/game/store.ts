@@ -1,26 +1,22 @@
 import { create } from 'zustand';
-import { balanceOf, type ChainInfo } from '../chain/escrow';
+import { balanceOf, loadArenaMarkets, type ArenaInfo, type ArenaMarket } from '../chain/arena';
+import { ArenaPlayer } from '../chain/arenaPlayer';
 import { accountOf, loadBurnerKey } from '../chain/wallet';
 import { config, DURATIONS, STAKES } from '../config';
 import { DEFAULT_MARKETS, type Address, type Hex, type Market, type MatchView, type Mids } from '../engine';
 import { createLiveFeed, type FeedStatus, type PriceFeed } from '../hl/feed';
-import { LocalDriver, RemoteDriver, type Driver, type DriverEvents } from './drivers';
+import { ArenaDriver, LocalDriver, type Driver, type DriverEvents } from './drivers';
 
 export type Screen = 'lobby' | 'matching' | 'table';
-
-interface RefereeInfo {
-  feed: FeedStatus;
-  chain: ChainInfo | null;
-}
 
 interface GameState {
   ready: boolean;
   feedStatus: FeedStatus;
   mids: Mids;
   markets: Market[];
-  /** Null on the practice table, or when the referee cannot be reached. */
-  referee: RefereeInfo | null;
-  refereeError: string | null;
+  /** The on-chain arena, once its contract has answered. Null on the practice table. */
+  arena: ArenaInfo | null;
+  arenaError: string | null;
   address: Address | null;
   balance: bigint | null;
   screen: Screen;
@@ -29,10 +25,9 @@ interface GameState {
   error: string | null;
   duration: number;
   stake: string;
-  bot: boolean;
 
   init(): Promise<void>;
-  setTerms(terms: Partial<Pick<GameState, 'duration' | 'stake' | 'bot'>>): void;
+  setTerms(terms: Partial<Pick<GameState, 'duration' | 'stake'>>): void;
   findDuel(): Promise<void>;
   pick(cardIndex: number): Promise<void>;
   leave(): void;
@@ -44,6 +39,7 @@ interface GameState {
 let feed: PriceFeed | null = null;
 let driver: Driver | null = null;
 let burnerKey: Hex | null = null;
+let arenaMarkets: ArenaMarket[] = [];
 
 export const useGame = create<GameState>((set, get) => {
   const events: DriverEvents = {
@@ -51,14 +47,15 @@ export const useGame = create<GameState>((set, get) => {
     onBusy: (busy) => set({ busy }),
     onError: (error) => set({ error }),
   };
+  const arenaDriver = (arena: ArenaInfo, key: Hex) => new ArenaDriver(new ArenaPlayer(arena, key, arenaMarkets, events));
 
   return {
     ready: false,
     feedStatus: 'connecting',
     mids: {},
     markets: [],
-    referee: null,
-    refereeError: null,
+    arena: null,
+    arenaError: null,
     address: null,
     balance: null,
     screen: 'lobby',
@@ -67,11 +64,9 @@ export const useGame = create<GameState>((set, get) => {
     error: null,
     duration: DURATIONS[1].seconds,
     stake: STAKES[2],
-    bot: true,
 
     async init() {
       if (feed) return;
-      // A fast-forwarded tape if Hyperliquid cannot be reached, so a demo still has movement.
       feed = createLiveFeed({ markets: DEFAULT_MARKETS, fallbackAfterMs: 6000, simSpeed: 1 });
       let last = 0;
       feed.onUpdate(() => {
@@ -90,20 +85,19 @@ export const useGame = create<GameState>((set, get) => {
       const address = accountOf(burnerKey).address;
       set({ address, ready: true });
 
-      if (!config.refereeUrl) return;
+      if (!config.arena) return;
       try {
-        const res = await fetch(`${config.refereeUrl}/health`);
-        const referee = (await res.json()) as RefereeInfo;
-        set({ referee, refereeError: null });
+        arenaMarkets = await loadArenaMarkets(config.arena);
+        set({ arena: config.arena, arenaError: null });
         void get().refreshBalance();
-        const active = (await (await fetch(`${config.refereeUrl}/active?player=${address}`)).json()) as { matchId: Hex | null };
-        if (active.matchId) {
-          const remote = new RemoteDriver(config.refereeUrl, address, burnerKey, referee.chain, events);
-          driver = remote;
-          await remote.resume(active.matchId);
+        // A duel in progress survives a restart: everything needed is on-chain or derived from the key.
+        const resumed = arenaDriver(config.arena, burnerKey);
+        if (await resumed.resume()) {
+          driver = resumed;
+          set({ screen: 'matching' });
         }
-      } catch (e) {
-        set({ refereeError: `Could not reach the referee at ${config.refereeUrl}. Playing on the practice table instead.` });
+      } catch {
+        set({ arenaError: 'Could not reach the arena contract, so this is the practice table for now.' });
       }
     },
 
@@ -112,18 +106,15 @@ export const useGame = create<GameState>((set, get) => {
     },
 
     async findDuel() {
-      const { address, referee, duration, stake, bot } = get();
+      const { address, arena, duration, stake } = get();
       if (!address || !feed || !burnerKey) return;
       driver?.stop();
       set({ screen: 'matching', view: null, error: null, busy: null });
-      driver =
-        config.refereeUrl && referee
-          ? new RemoteDriver(config.refereeUrl, address, burnerKey, referee.chain, events)
-          : new LocalDriver(feed, address, events);
+      driver = arena ? arenaDriver(arena, burnerKey) : new LocalDriver(feed, address, events);
       try {
-        await driver.find({ duration, stake, bot: referee ? bot : true });
+        await driver.find({ duration, stake });
       } catch (e) {
-        set({ screen: 'lobby', error: (e as Error).message });
+        set({ screen: 'lobby', error: (e as Error).message, busy: null });
       }
     },
 
@@ -133,14 +124,21 @@ export const useGame = create<GameState>((set, get) => {
       } catch (e) {
         set({ error: (e as Error).message, busy: null });
       }
-      void get().refreshBalance();
     },
 
     leave() {
-      driver?.stop();
+      const leaving = driver;
       driver = null;
       set({ screen: 'lobby', view: null, busy: null, error: null });
-      void get().refreshBalance();
+      void (async () => {
+        try {
+          await leaving?.leave?.();
+        } catch {
+          // Nothing to take back.
+        }
+        leaving?.stop();
+        void get().refreshBalance();
+      })();
     },
 
     dismissError() {
@@ -148,10 +146,10 @@ export const useGame = create<GameState>((set, get) => {
     },
 
     async refreshBalance() {
-      const { referee, address } = get();
-      if (!referee?.chain || !address) return;
+      const { arena, address } = get();
+      if (!arena || !address) return;
       try {
-        set({ balance: await balanceOf(referee.chain, address) });
+        set({ balance: await balanceOf(arena, address) });
       } catch {
         set({ balance: null });
       }
