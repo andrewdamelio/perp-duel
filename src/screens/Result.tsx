@@ -80,16 +80,13 @@ export function Result({ view }: { view: MatchView }) {
       </View>
     );
   }
-  const pot = BigInt(view.stake) * 2n;
+  const pot = fmtHype(BigInt(view.stake) * 2n);
+  const stakes = view.onchain;
   const headline =
-    result.outcome === 'win' ? 'You take the pot' : result.outcome === 'loss' ? `${view.opp.name} takes the pot` : 'Dead heat';
-  const money = view.onchain ? '' : ' of play money';
-  const sub =
-    result.outcome === 'draw'
-      ? `Both stakes${money} go back.`
-      : result.outcome === 'win'
-        ? `${fmtHype(pot)}${money}, ${fmtPoints(result.you.total)} to ${fmtPoints(result.opp.total)}.`
-        : `${fmtHype(pot)}${money}, ${fmtPoints(result.opp.total)} to ${fmtPoints(result.you.total)}.`;
+    result.outcome === 'draw' ? 'Dead heat' : result.outcome === 'win' ? (stakes ? 'You take the pot' : 'You win') : stakes ? `${view.opp.name} takes the pot` : `${view.opp.name} wins`;
+  const score = result.outcome === 'loss' ? `${fmtPoints(result.opp.total)} to ${fmtPoints(result.you.total)}` : `${fmtPoints(result.you.total)} to ${fmtPoints(result.opp.total)}`;
+  const record = `You are ${g.record.wins} and ${g.record.losses}`;
+  const sub = stakes ? (result.outcome === 'draw' ? 'Both stakes go back.' : `${pot}, ${score}.`) : `${score}. ${record}.`;
   const chain = g.arena;
   const txUrl = chain && view.settleTx ? explorerTx(chain, view.settleTx) : null;
   const colWidth = Math.min(176, (Math.min(width, 480) - 2 * space.l - space.l) / 2);

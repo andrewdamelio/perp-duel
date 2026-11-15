@@ -57,7 +57,7 @@ export function Deal({ view }: { view: MatchView }) {
           Your hand
         </Text>
         <P dim>
-          {fmtDuration(view.duration)} against {view.opp.name}, {fmtHype(view.stake)} each{view.onchain ? '' : ' in play money'}. Pick one card{view.onchain ? ' within 90 seconds, or forfeit' : ''}.
+          {fmtDuration(view.duration)} against {view.opp.name}{view.onchain ? `, ${fmtHype(view.stake)} each` : ''}. Pick one card{view.onchain ? ' within 90 seconds, or forfeit' : ''}.
         </P>
       </View>
 

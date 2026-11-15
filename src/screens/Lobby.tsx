@@ -3,6 +3,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { chainName } from '../chain/arena';
 import { DURATIONS, STAKES } from '../config';
 import { DEFAULT_MARKETS, marketByCoin, type Card } from '../engine';
+import { streakLabel } from '../game/record';
 import { useGame } from '../game/store';
 import { fmtHype, shortAddress } from '../ui/format';
 import { Button, Choice, Notice, P } from '../ui/kit';
@@ -37,7 +38,7 @@ export function Lobby() {
       <Text accessibilityRole="header" style={styles.title}>
         Perp Duel
       </Text>
-      <P style={styles.pitch}>Two players, one card each, up to 1000× leverage. Best trade when the clock stops takes the pot.</P>
+      <P style={styles.pitch}>Two players, one card each, up to 1000× leverage. Best trade when the clock stops wins.</P>
 
       <View style={[styles.fan, { height: cardWidth * CARD_RATIO + 28 }]} accessible accessibilityLabel="Three example cards">
         {SHOWCASE.map((card, i) => (
@@ -62,12 +63,23 @@ export function Lobby() {
       </P>
 
       <Choice title="Length" value={g.duration} onChange={(duration) => g.setTerms({ duration })} options={DURATIONS.map((d) => ({ value: d.seconds, label: d.label, note: d.note }))} />
-      <Choice
-        title={escrow ? 'Stake each' : 'Stake each, play money'}
-        value={g.stake}
-        onChange={(stake) => g.setTerms({ stake })}
-        options={STAKES.map((s) => ({ value: s, label: fmtHype(s) }))}
-      />
+      {escrow ? (
+        <Choice title="Stake each" value={g.stake} onChange={(stake) => g.setTerms({ stake })} options={STAKES.map((s) => ({ value: s, label: fmtHype(s) }))} />
+      ) : null}
+
+      <View style={styles.record} accessible accessibilityLabel={`Your record: ${g.record.wins} wins, ${g.record.losses} losses`}>
+        <View>
+          <Text style={styles.recordLabel}>Your record</Text>
+          {streakLabel(g.record) ? <Text style={[styles.recordStreak, { color: g.record.streak > 0 ? color.long : color.short }]}>{streakLabel(g.record)}</Text> : null}
+        </View>
+        <Text style={styles.recordScore}>
+          <Text style={{ color: color.long }}>{g.record.wins}</Text>
+          <Text style={{ color: color.dim }}> W  </Text>
+          <Text style={{ color: color.short }}>{g.record.losses}</Text>
+          <Text style={{ color: color.dim }}> L</Text>
+        </Text>
+      </View>
+
       <View style={{ marginTop: space.xl, gap: space.m }}>
         {g.error ? <Notice text={g.error} onDismiss={g.dismissError} /> : null}
         {g.arenaError ? <Notice text={g.arenaError} tone="info" /> : null}
@@ -86,7 +98,7 @@ export function Lobby() {
           </P>
         ) : (
           <P dim style={styles.small}>
-            Practice table. Nothing leaves this device except the price subscription.
+            Practice table against a bot. No money involved: wins and losses go on your record.
           </P>
         )}
         {escrow && g.address ? (
@@ -110,4 +122,8 @@ const styles = StyleSheet.create({
   fan: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginVertical: space.xl },
   footer: { marginTop: space.xl, gap: space.s },
   small: { fontSize: size.small, lineHeight: 19 },
+  record: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: color.raised, borderRadius: 16, paddingHorizontal: space.l, paddingVertical: space.m, marginTop: space.l },
+  recordLabel: { fontFamily: font.semi, fontSize: size.body, color: color.text },
+  recordStreak: { fontFamily: font.medium, fontSize: size.small },
+  recordScore: { fontFamily: font.display, fontSize: size.big, lineHeight: size.big + 2 },
 });

@@ -6,6 +6,7 @@ import { config, DURATIONS, STAKES } from '../config';
 import { DEFAULT_MARKETS, type Address, type Hex, type Market, type MatchView, type Mids } from '../engine';
 import { createLiveFeed, type FeedStatus, type PriceFeed } from '../hl/feed';
 import { ArenaDriver, LocalDriver, type Driver, type DriverEvents } from './drivers';
+import { addResult, EMPTY_RECORD, loadRecord, saveRecord, type Standing } from './record';
 
 export type Screen = 'lobby' | 'matching' | 'table';
 
@@ -25,6 +26,7 @@ interface GameState {
   error: string | null;
   duration: number;
   stake: string;
+  record: Standing;
 
   init(): Promise<void>;
   setTerms(terms: Partial<Pick<GameState, 'duration' | 'stake'>>): void;
@@ -40,10 +42,20 @@ let feed: PriceFeed | null = null;
 let driver: Driver | null = null;
 let burnerKey: Hex | null = null;
 let arenaMarkets: ArenaMarket[] = [];
+let counted: string | null = null;
 
 export const useGame = create<GameState>((set, get) => {
   const events: DriverEvents = {
-    onView: (view) => set({ view, screen: 'table' }),
+    onView: (view) => {
+      set({ view, screen: 'table' });
+      // Count each finished duel once.
+      if (view.result && view.id !== counted) {
+        counted = view.id;
+        const record = addResult(get().record, view.result.outcome);
+        set({ record });
+        void saveRecord(record);
+      }
+    },
     onBusy: (busy) => set({ busy }),
     onError: (error) => set({ error }),
   };
@@ -64,6 +76,7 @@ export const useGame = create<GameState>((set, get) => {
     error: null,
     duration: DURATIONS[1].seconds,
     stake: STAKES[2],
+    record: EMPTY_RECORD,
 
     async init() {
       if (feed) return;
@@ -81,6 +94,7 @@ export const useGame = create<GameState>((set, get) => {
         // Prices failing to start must never block the table from opening.
       }
 
+      set({ record: await loadRecord() });
       burnerKey = await loadBurnerKey();
       const address = accountOf(burnerKey).address;
       set({ address, ready: true });
@@ -112,7 +126,8 @@ export const useGame = create<GameState>((set, get) => {
       set({ screen: 'matching', view: null, error: null, busy: null });
       driver = arena ? arenaDriver(arena, burnerKey) : new LocalDriver(feed, address, events);
       try {
-        await driver.find({ duration, stake });
+        // The practice table has no stake: it only moves your record.
+        await driver.find({ duration, stake: arena ? stake : '0' });
       } catch (e) {
         set({ screen: 'lobby', error: (e as Error).message, busy: null });
       }
